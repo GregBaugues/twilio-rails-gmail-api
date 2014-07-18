@@ -10,4 +10,5 @@ gem 'omniauth-google-oauth2'
 group :development do
   gem 'better_errors'
   gem 'pry'
+  gem 'binding_of_caller'
 end
