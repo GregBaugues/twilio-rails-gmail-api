@@ -1,3 +1,3 @@
 Gmail::Application.routes.draw do
-  root 'welcome#index'
+  root 'google#connect'
 end
