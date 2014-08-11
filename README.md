@@ -1,42 +1,29 @@
 Send SMS email alerts with the Gmail API and Ruby on Rails
 ================================
-I turned off GMail alerts on my phone a while ago. It just doesn't make sense for my phone to beep every time one of my mom's Facebook friends "also commented on her status." But not all emails are created equal and there are some messages for which I would like to know *right now* when they show up in my inbox. 
- 
-SMS alerts are great for urgent notifications. If you follow this tutorial, you will build a Ruby on Rails app that retrieves emails from the GMail API and uses Twilio to text you when certain messages arrive. 
+I turned off GMail alerts on my phone a while ago. It just doesn't make sense for my phone to beep every time one of my mom's Facebook friends "also commented on her status." 
 
-Here's the process you'll go through: 
+But not all emails are created equal. There are some messages for which I would like to know *right now* when they show up in my inbox. SMS alerts are great for customized urgent notifications like this. 
 
-#### Setup your Ruby on Rails and Google API app
+This tutorial will teach you how to build a Ruby on Rails app that retrieves emails from the GMail API and uses Twilio to send SMS email alerts. Here's the process you'll go through: 
 
-1. Open a tunnel to your development machine using ngrok
-2. Create a new app in your Google API console 
-3. Prepare a Ruby on Rails app to work with the Google API
+1. Prepare your Ruby on Rails to connect to the Google API
+2. Authorize your app wit the Google API using OAuth 2.0
+3. Get emails from the GMail API
+4. Send SMS alerts using Twilio
 
-#### Authorize your Rails app with the Google API using OAuth 
-
-1. Retrieve the Google API OAuth token using Omniauth
-2. Save the OAuth token using ActiveRecord
-3. Refresh the Google API OAuth token when necessary
-
-#### Get emails from the GMail API
-
-1. Create an SMS label and use the GMail API to find its ID
-2. Get a list of inbox emails marked with the SMS label
-3. Retrieve email details from the GMail API
-
-#### Send SMS alerts using Twilio
-
-1. Setup your Twilio account credentials
-2. Create an ActiveRecord model to track and send SMS alerts
-3. Create a cronjob to monitor GMail
+Let's get started...
 
 ## Setup your Ruby on Rails and GMail API project
 
+Before you pull data from the GMail API, you need to convince Google that your app has access your account data. This is accomplished via a OAuth. The GMail API is a subsidiary of the Google API, so while this tutorial is focused on retrieving emails, the authorization process can also be used to connect to other Google APIs such as Google Calendar, Google Docs, etc. 
+
 ### 1. Open a tunnel to your development machine using ngrok
 
-In order to authenticate our app with the Google API, you need to provide Google with a publicly accessible URL to reach your app. However, since your development machine is likely hiding behind a router, you need to create a tunnel to make your local app available to the Internet at large. We're big fans of of [ngrok](http://ngrok.com) for this purpose. 
+In order to authenticate with the Google API, you need to provide Google with a publicly accessible URL to reach your app. Since your development machine is hiding behind a router, you need to create a tunnel to make your local app available to the Internet at large. Though there are many tunneling apps on the market, at Twilio we're big fans of of [ngrok](http://ngrok.com). 
 
-[Register for a free ngrok account](https://ngrok.com/user/signup) so that you can use custom subdomains. Then [download ngrok](https://ngrok.com/), unzip it and move the executable to your home directory. Run ngrok and specify a custom subdomain and pass the port number of your (not yet created) Rails app -- 3000 by default. On OSX using the default downloads folder, you can do all this via the terminal with:
+[Register for a free ngrok account](https://ngrok.com/user/signup), then [download it](https://ngrok.com/), unzip it and move the executable to your home directory. Then run ngrok, specifying a custom subdomain and passing the port number of your (not yet created) Rails app: 3000 by default: 
+
+On OSX this looks like: 
 
 ```shell
 unzip ~/Downloads/ngrok.zip
@@ -44,34 +31,34 @@ mv ~/Downloads/ngrok ~
 ~/ngrok -subdoman=example 3000
 ```
 
-Once it ngrok starts, you'll something like the picture below. So long as this terminal window stays open and ngrok stays running, you (and other services) can access your equivalent of "localhost" using you custom ngrok url. 
+Once it ngrok starts, you'll see something like the picture below. So long as this terminal window stays open and ngrok stays running, anyone can access the your equivalent ```localhost:3000``` via a publicly accessible ngrok url. 
 
 ![](public/images/ngrok.png)
 
-For the rest of this tutorial, I'll use ```example.ngrok.com```, but you should obviously replace that with your custom ngrok url. 
+I'll use ```example.ngrok.com``` for the rest of the tutorial -- make sure you replace that with your custom ngrok url. 
 
 ### 2. Create a new app in your Google API console 
 
-Head over to the [Google Developer's Console](https://console.developers.google.com/project) and click *Create Project*. After you give it a name, Google will need a few minutes to create your project. Once complete, click into your project, click *Enable an API* and flip the toggles next to *Gmail API*, *Google Contacts CardDAV API*, and *Google+ API* (you can turn the rest of the APIs off if you're the tidy type). 
+Head over to the [Google Developer's Console](https://console.developers.google.com/project) and click *Create Project*. Name your app ```Gmail Alerts```, and wait a few minutes for Google to to create your project. Then click into your project, click *Enable an API* and flip the toggles next to *Gmail API*, *Google Contacts CardDAV API*, and *Google+ API* (if youre the tidy type, you can turn the rest of the APIs). 
 
 ![](/public/images/google-apis-on.png)
 
-Next, create your OAuth2 credentials which your Rails app will use to gain permission to interact with your GMail account. Click *Credentials* on the left side of the screen, then click *Create new Client ID*.
+Now create your OAuth 2.0 credentials which your Rails app will use to gain permission to interact with your GMail account. Click *Credentials* on the left side of the screen, then click *Create new Client ID*.
 
 ![](/public/images/client-id.png)
 
-You will see a few new values will pop up on your dashboard. Drop into a terminal and set the *client id* and *client secret* as sessions variables.
+You will see a few new values will pop up on your dashboard. Open a new terminal window (don't touch the one running ngrok!) and set the *client id* and *client secret* as sessions variables.
 
 ```shell
 export CLIENT_ID=123456789.apps.googleusercontent.com
 export CLIENT_SECRET=abcdefg
 ```
 
-Session variables (otherwise known as "environment variables") disappear with each new terminal *session*, so make sure that when you launch your Rails app in the next step, you do it from this same terminal window. Alternatively, you can use the [dotenv](https://github.com/bkeepers/dotenv) gem to store your environment variables so that you don't have to keep resettings them from each new terminal session. 
+Session variables (otherwise known as "environment variables") disappear with each new terminal *session*, so make sure that when you launch your Rails app in the next step, you do it from this same window. Alternatively, you can use the [dotenv](https://github.com/bkeepers/dotenv) gem to store environment variables so that you don't have to reset them from each new terminal session. 
 
 ### 3. Setup a Ruby on Rails project to access the Google API
 
-Create a new Rails app from whichever directory in which you keep your code:
+Create a new Rails app from your preferred code directory:
 
 ```shell
 cd ~/code
@@ -86,7 +73,9 @@ echo "2.1.2" > .ruby-version
 echo "gmail-twilio" > .ruby-gemset
 ```
 
-Then set up your ```Gemfile``` to work with the Google API and Twilio. Since this will be a simple app run mostly from the command line, you can strip out most of the default Rails gems. Replace your entire ```Gemfile```with this: 
+Then set up your ```Gemfile``` to work with the Google API and Twilio. Since this will be a simple app that you run mostly from the command line, you can strip out most of the default Rails gems. 
+
+Replace your entire ```Gemfile```with: 
 
 ```ruby
 #Gemfile
@@ -101,84 +90,86 @@ gem 'omniauth-google-oauth2'
 gem 'twilio-ruby' 
 ```
 
-Let's talk about a few of those: 
+Let's talk about a few of those gems: 
 
 ##### 'rails', '4.0.2'
 
-This is the most recent version at the time of writing, but there's nothing in this tutorial that's Rails 4 dependent. If you're rocking a Rails 3 app, this should all work just fine. 
+At the time of writing this is the most recent version of Rails, but there's nothing in this tutorial that should keep your Rails 3 app from working with the Google API. 
 
 ##### sqlite3
 
-SQLite is a great datastore for getting up and running quickly, though if you deploy this app to a production, you'll probably want to upgrade to MySQL or PostgreSQL. 
+SQLite is a great datastore for getting up and running quickly, though if you deploy this app to a production you'll probably want to upgrade to MySQL or PostgreSQL. 
 
 ##### google-api-client
 
-Unfortunately, Google didn't quite conform to standard gem naming conventions, so if you simply use ```gem 'google-api-client'```, you'll get an ```uninitialized constant``` error when you later call ```Google::APIClient.new```. Appending ```require: 'google/api_client'``` to the gem declaration prevents this. 
+The official [ruby gem of the Google API](https://github.com/google/google-api-ruby-client). Unfortunately, Google didn't quite conform to standard gem naming conventions, so if you simply use ```gem 'google-api-client'```, you'll get an ```uninitialized constant``` error when you later call ```Google::APIClient.new```. Appending ```require: 'google/api_client'``` to the gem declaration prevents this. 
 
 ##### json
 
-The Google API gem returns data in easily digestible JSON. The JSON gem eats up that data and spits it back to you as a hash. 
+The Google API gem returns data in easily digestible JSON. The JSON gem eats up that data and spits it back as a hash.
 
 ##### omniauth and omniauth-google-oauth2
 
-OmniAuth uses swappable “strategies” to authorize with services such as Twitter, Facebook and GMail. Fortunately, there's a Omniauth strategy for the Google API which makes connecting your Rails app to GMail pretty easy. 
+OmniAuth uses swappable “strategies” to perform OAuth authentication with services such as Twitter, Facebook and GMail. Fortunately, there's a Omniauth strategy for the Google API which simplifies connecting your Rails app to the GMail API. 
 
 ##### twilio-ruby
 
-The Twilio helper library that will allow you to send SMS messages using Ruby. 
+This is the Twilio helper library that will help you send SMS messages using Ruby. 
 
-Once your Gemfile is saved, drop terminal and install your gems from the terminal: 
+Once your Gemfile is saved, install your gems from the terminal: 
 
 ```shell 
 gem install bundler
 bundle install
 ```
 
-Now on to the coding... 
+Onto the coding... 
 
 ## Authorize your Rails app with the Google API
 
 ### 1. Retrieve the Google API OAuth token using Omniauth
 
-The Google API uses OAuth to verify that your Rails app has permission to access your account. You'll send Google a *CLIENT_ID* and *CLIENT_SECRET*, verify that "this app has permission to access my GMail account" via a screen that you've undoubtedly seen many times before: 
+Even if you've never written an OAuth authorization before, you've undoubtedly used it. OAuth is the results in a screen that looks like this: 
 
 ![](public/images/choose-an-email.png)
 
-Once verified, Google "calls back" your app via the URL you defined in the Google API console (your ngrok url) and sends a temporary access token that can be used with API requests. Google also sends a refresh token that lets you request new access tokens as they expire. 
+Once the verified, Google "calls back" your app and sends a temporary access token that can be used to access your account data. Omniauth is the defacto standard way to use OAuth in Ruby apps. 
 
-Omniauth is the de facto Ruby gem for implementing OAuth authentication. Omnitauth uses "swappable strategies" to connect with a multitude of services such as Facebook, Twitter and, fortunately for us, Google. To get started, create a new file in ```config/initializers``` called ```omniauth.rb``` and copy this code: 
+To set up Omniauth, create a new file in ```config/initializers``` called ```omniauth.rb```:
 
 ```ruby
 #config/initalizers/omniauth.rb
 
 Rails.application.config.middleware.use OmniAuth::Builder do
   provider :google_oauth2, ENV['CLIENT_ID'], ENV['CLIENT_SECRET'], {
-    scope: ['https://www.googleapis.com/auth/userinfo.email',
+    scope: ['email',
             'https://www.googleapis.com/auth/gmail.readonly'],
     access_type: 'offline'
   }
 end
 ```
 
-(PSA: any time you change a file in the ```config/initializers``` directory, you must restart your Rails server for the changes to take effect.)
+(PSA: any time you modify a file in the ```config/initializers``` directory, you must restart your Rails server for the changes to take effect.)
 
-The ```provider``` line tells Omniauth to use the ```google_oauth2``` strategy with the ```CLIENT_ID``` and ```CLIENT_SECRET``` environment variables you set earlier. 
+The ```provider``` line tells Omniauth setup the ```google_oauth2``` strategy with the ```CLIENT_ID``` and ```CLIENT_SECRET``` environment variables you defined earlier. 
 
-*scope* tells the Google API which resources you want access to. You would think that you only need to access the GMail scope in order to retrieve emails, but if you omit the ```userinfo.email``` scope you will receive an ```insufficientPermissions``` error when you try to authenticate.
+*scope* tells the Google API which resources you want to access. If you omit the ```email``` scope you will receive an ```insufficientPermissions``` error when you try to authenticate.
 
-Because you want to access GMail via an automated script and not when the user (you) is in front of the browser, you must provide the ```access_type: 'offline'``` flag. This will cause Google to send you a refresh token that can be exchanged for new access tokens when they expire.
+Because you want to access GMail via an automated script, and because the access token Google sends you expires after 60 minutes, you must provide the ```access_type: 'offline'``` flag. This causes Google to send a refresh token that can be exchanged for new access tokens as they expire. 
 
-In order to receive those tokens, you need to set up the callback route. Delete the default code in your your ```config/routes.rb``` (yes, all of it) and replace it with: 
+Google sends these tokens via HTTP request parameters to the ```callback``` url you defined in your Google API console earlier. Let's create that. 
+
+Delete the default code in your your ```config/routes.rb``` (yes, all of it) and replace it with: 
 
 ```ruby
 # config/routes.rb
 
-Gmail::Application.routes.draw do
+GmailAlerts::Application.routes.draw do
   get "/auth/:provider/callback" => "sessions#create"
 end
 ```
 
-This tells Rails that "when a request is made to ```http://example.ngrok.com/auth/google/callback``` run the ```create``` method in the ```Sessions``` controller. Define ```SessionsController``` by creating a new file at ```app/controllers/sessions_controller.rb``` and copying: 
+This tells Rails, "when a request is made to ```http://example.ngrok.com/auth/google/callback``` run the ```create``` method in the ```Sessions``` controller. To define the ```SessionsController```, create a new file at ```app/controllers/sessions_controller.rb```: 
 
 ```ruby
 # app/controllers/sessions_controller.rb
@@ -190,7 +181,7 @@ class SessionsController < ApplicationController
 end
 ```
 
-This is just a temporary ```SessionsController``` to make sure that the authentication flow is working correctly so far. For the sake of instant gratification, create a simple view at ```app/views/sessions/create.erb``` to see the fruits your labor: 
+This is just a temporary ```SessionsController``` to make sure that the authentication flow is working correctly so far. For the sake of instant gratification, create a simple view at ```app/views/sessions/create.erb```: 
 
 ```
 # app/views/sessions/create.erb
@@ -198,32 +189,36 @@ This is just a temporary ```SessionsController``` to make sure that the authenti
 <%= @auth %>
 ```
 
-Drop back into that terminal window where you set your environment variables and start Rails: 
+Now to try it out... From the terminal window where you set your environment variables, start your Rails server: 
 
 ```shell
 rails s
 ```
 
-Visit ```http://example.ngrok.com/auth/google_oauth2``` in a broswer. You will be redirected to Google to authorize your GMail account, then Google will redirect to your callback URL, passing along authentication data in the request parameters. 
+Visit ```http://example.ngrok.com/auth/google_oauth2``` in a broswer. You will be redirected to Google to authorize your GMail account, then Google will redirect to your callback URL, passing along authentication data in the request parameters. You should see something like this: 
+
+![](/images/token.png)
+(need a better picture here)
 
 ### 2. Save the OAuth token using ActiveRecord
 
-The two most important bits are found in: 
+The two most important bits of information here are in: 
 
 ```
 request.env['credentials']['access_token']
 ```
 
-lets you pull data from the GMail API, but expires in 60 minutes. 
+This lets you pull data from the GMail API, but expires in 60 minutes. 
 
 ```
 request.env['credentials']['refresh_token']
 ```
-lets you request fresh access tokens as they expire. 
+
+This lets you request fresh access tokens as they expire. 
 
 Now a bit of inconvenience.... Google only sends the refresh token the first time you authorize your account, so *you have to save it*... and we just blew that opportunity. So, go to your [Gmail Account Permissions](https://security.google.com/settings/security/permissions?pli=1) and revoke permissions to the app you just authorized so that Google will send another refresh token. This time we'll be ready for it. 
 
-Initialize a database and create an ActiveRecord model in which to store your tokens: 
+Initialize your database and create an ActiveRecord model to store your tokens: 
 
 ```shell
 rake db:create
@@ -231,7 +226,7 @@ rails g model token \access_token:string refresh_token:string expires_at:datetim
 rake db:migrate
 ```
 
-Update your ```SessionsController``` to save the Google API tokens: 
+Update ```SessionsController``` to save the Google API tokens: 
 
 ```ruby
 # app/controllers/sessions_controller.rb
@@ -248,7 +243,7 @@ class SessionsController < ApplicationController
 end
 ```
 
-Visit ```http://example.ngrok.com/auth/google_oauth2``` again, authorize your GMail account, then check your database to ensure that a new record was created in your ```tokens``` table with your ```access_token``` and ```refresh_token```. 
+Visit ```http://example.ngrok.com/auth/google_oauth2``` again and reauthorize your GMail account. Check your database and ensure that a new record was created in your ```tokens``` table with the ```access_token``` and ```refresh_token``` populated.  
 
 ### 3. Refresh the Google API access token when necessary 
 
@@ -316,7 +311,7 @@ One last note on the Token model: The tokens table is be a bit atypical in that 
 
 Alright! You have authorized your Rails app with the GMail API. Now it's time to pull some data. But first... let's think about how you're going to identify which emails deserve SMS alerts. You could do this in your Ruby code but that would mean modifying and redeploying your app every time you want to add a new alert. Instead, let's use GMail's robust filtering functionality to add a label called "SMS" to emails that fit specific criteria.
 
-Now you can have your app look for emails in your inbox that have the SMS label. But first, we need to find the id of your newly created label, and we can only discover that from the GMail API. That's alright though, it gives us our first foray into pulling data from the API. 
+Now you can have your app look for emails in your inbox that have the SMS label. But first, we need to find the id of your newly created label, and we can only discover that from the GMail API. 
 
 Create a new rake task at ```lib/tasks/list_labels.rake```: 
 
@@ -418,7 +413,7 @@ export TWILIO_PHONE_NUMBER=+13128675309
 
 ### 2. Create an ActiveRecord model to track and send SMS alerts
 
-We're going to keep this simple and create a model that answers the question "Have I already attempted to send an SMS alert for this email?" You could use [delivery receipts]() to ensure that your phone received the SMS, or setup a callback for Twilio to send your app success/error messages, but that's another blog post. 
+We're going to keep this simple and create a model that answers the question "Have I already attempted to send an SMS alert for this email?" If you want to get fancy, you could use [delivery receipts]() to ensure that your phone received the SMS, or setup a callback for Twilio to send your app a success/error messages, but that's another blog post. 
 
 From the terminal:
 
@@ -427,7 +422,7 @@ rails g model alerts \email_id:string body:string
 rake db:migrate
 ```
 
-Then copy this into ```app/models/alert.rb```
+Then populate ```app/models/alert.rb``` with:
 
 ```ruby
 class Alert < ActiveRecord::Base
@@ -447,7 +442,9 @@ end
 
 ```
 
-And append this inside your ```check_emails``` task:
+The ```send_sms``` method instantiates a new Twilio REST client using your account credentials, then sends an sms using three parameters you would expect: 'to' phone number, 'from' phone number, and the message body. 
+
+Append your ```check_emails``` task to send a text message when it discovers new emails if an alert for that message does not already exist: 
 
 ```ruby
   emails.each do |email|
@@ -470,10 +467,13 @@ BOOM!
 ### 3. Create cronjob to monitor GMail
 
 
-
 ```term
 1 * * * rake check_messages
 ```
+
+Next steps: 
+
+Obviously in its current form, this script is only going to work if your development machine is open. 
 
 https://productforums.google.com/forum/#!topic/gmail/12c_hR0_F2I
 
