@@ -389,6 +389,8 @@ Astute readers will notice that this is the same as your ```list_lables``` task 
   emails = JSON.parse(result.body)['emails']
 ```
 
+NEED CODE FOR EXTRACTING DETAILS
+
 
 ## Send SMS alerts using Twilio
 
